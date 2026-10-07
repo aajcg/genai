@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from 'react';
 import {
   Activity,
@@ -283,7 +282,7 @@ function App() {
           {backendError && (
             <p
               style={{
-                color: '#f87171',
+                color: '#B42A4A',
                 margin: '0 0 16px',
                 fontSize: '14px',
               }}
@@ -378,31 +377,31 @@ function App() {
                       >
                         <stop
                           offset="0%"
-                          stopColor="#45D6AC"
-                          stopOpacity={0.3}
+                          stopColor="#0E9F8E"
+                          stopOpacity={0.38}
                         />
                         <stop
                           offset="95%"
-                          stopColor="#45D6AC"
+                          stopColor="#0E9F8E"
                           stopOpacity={0}
                         />
                       </linearGradient>
                     </defs>
 
                     <CartesianGrid
-                      stroke="#263449"
-                      strokeDasharray="4 4"
+                      stroke="rgba(20, 33, 61, 0.1)"
+                      strokeDasharray="3 6"
                     />
 
                     <XAxis
                       dataKey="time"
-                      tick={{ fill: '#8190A6', fontSize: 11 }}
+                      tick={{ fill: '#5D6B8A', fontSize: 12 }}
                       axisLine={false}
                       tickLine={false}
                     />
 
                     <YAxis
-                      tick={{ fill: '#8190A6', fontSize: 11 }}
+                      tick={{ fill: '#5D6B8A', fontSize: 12 }}
                       axisLine={false}
                       tickLine={false}
                       width={42}
@@ -410,10 +409,12 @@ function App() {
 
                     <Tooltip
                       contentStyle={{
-                        background: '#152236',
-                        border: '1px solid #304057',
-                        borderRadius: 10,
-                        color: '#F1F5F9',
+                        background: 'rgba(255, 255, 255, 0.88)',
+                        border: '1px solid rgba(20, 33, 61, 0.12)',
+                        borderRadius: 14,
+                        color: '#14213D',
+                        boxShadow: '0 16px 32px -16px rgba(52, 64, 140, 0.35)',
+                        backdropFilter: 'blur(10px)',
                       }}
                     />
 
@@ -421,7 +422,7 @@ function App() {
                       type="monotone"
                       dataKey="usage"
                       name="Consumption"
-                      stroke="#45D6AC"
+                      stroke="#0E9F8E"
                       strokeWidth={2.5}
                       fill="url(#usageGradient)"
                       connectNulls
@@ -523,11 +524,11 @@ function App() {
                 </p>
               </div>
 
-              <BrainCircuit size={20} color="#45D6AC" />
+              <BrainCircuit size={20} color="#0E9F8E" />
             </div>
 
             {metricsError && (
-              <p style={{ color: "#f87171", fontSize: "14px" }}>
+              <p style={{ color: "#B42A4A", fontSize: "14px" }}>
                 {metricsError}
               </p>
             )}

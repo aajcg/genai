@@ -1,10 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Sans:wght@400;500;600;700&display=swap');
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
-
+/*
+  WattWise design tokens
+  Light "daylight" theme: frosted glass panels floating over a pale sky wash.
+  Teal = measured consumption, sun amber = forecast, violet = peaks, deep navy = text.
+*/
 :root {
-  font-family: 'DM Sans', sans-serif;
-  color: #e7edf6;
-  background: #0b1220;
+  color-scheme: light;
+
+  --paper: #edf2f8;
+  --ink: #14213d;
+  --ink-2: #44537a;
+  --ink-3: #5d6b8a;
+
+  --teal: #0e9f8e;
+  --teal-deep: #0a7a6f;
+  --teal-wash: rgba(14, 159, 142, 0.13);
+
+  --sun: #f5a524;
+  --sun-deep: #8a5300;
+  --sun-wash: rgba(245, 165, 36, 0.18);
+
+  --violet: #6c5ce7;
+  --violet-deep: #4b3fb5;
+  --violet-wash: rgba(108, 92, 231, 0.13);
+
+  --danger: #b42a4a;
+
+  --glass: rgba(255, 255, 255, 0.56);
+  --glass-strong: rgba(255, 255, 255, 0.8);
+  --glass-edge: rgba(255, 255, 255, 0.85);
+  --hairline: rgba(20, 33, 61, 0.1);
+  --blur: blur(22px) saturate(165%);
+
+  --shadow-lift:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 30px 50px -30px rgba(52, 64, 140, 0.4),
+    0 3px 8px -2px rgba(52, 64, 140, 0.08);
+  --shadow-soft:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 12px 24px -16px rgba(52, 64, 140, 0.3);
+
+  --r-panel: 28px;
+  --r-card: 22px;
+  --r-inner: 16px;
+
+  --font-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--paper);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -21,12 +69,37 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background: var(--paper);
 }
 
-button, input {
+button,
+input {
   font: inherit;
+  color: inherit;
 }
 
 button {
   cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--teal-deep);
+  outline-offset: 2px;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
