@@ -1,0 +1,4 @@
+# Optional: install after requirements.txt to enable the DistilBART zero-shot classifier.
+# First chat request downloads the model weights from Hugging Face if not cached.
+transformers>=4.40
+torch>=2.2
