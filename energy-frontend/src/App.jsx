@@ -7,6 +7,9 @@ import {
   LayoutDashboard,
   BarChart3,
   BrainCircuit,
+  ReceiptText,
+  ChevronRight,
+  Sparkles,
   Send,
   Menu,
   Clock3,
@@ -20,12 +23,14 @@ import {
   YAxis,
   Tooltip,
 } from 'recharts';
+import BillAnalyzer from './components/BillAnalyzer';
 import './App.css';
 
 const API = 'http://127.0.0.1:5000/api';
 
 const navigation = [
   { label: 'Overview', icon: LayoutDashboard },
+  { label: 'Bill Analysis', icon: ReceiptText, badge: 'AI' },
   { label: 'Forecasting', icon: TrendingUp },
   { label: 'Analytics', icon: BarChart3 },
   { label: 'AI Assistant', icon: BrainCircuit },
@@ -198,7 +203,7 @@ function App() {
         <div className="nav-label">WORKSPACE</div>
 
         <nav>
-          {navigation.map(({ label, icon: Icon }) => (
+          {navigation.map(({ label, icon: Icon, badge }) => (
             <button
               key={label}
               className={`nav-item ${
@@ -208,6 +213,7 @@ function App() {
             >
               <Icon size={19} />
               <span>{label}</span>
+              {badge && <span className="nav-badge">{badge}</span>}
             </button>
           ))}
         </nav>
@@ -242,56 +248,89 @@ function App() {
           <div className="welcome-row">
             <div>
               <div className="eyebrow">
-                ENERGY MONITORING PLATFORM
+                {activePage === 'Bill Analysis' ? 'AI TARIFF & BILL INTELLIGENCE' : 'ENERGY MONITORING PLATFORM'}
               </div>
 
               <h1>
                 {activePage === 'Overview'
                   ? 'Energy Overview'
+                  : activePage === 'Bill Analysis'
+                  ? 'Electricity Bill Analysis'
                   : activePage}
               </h1>
 
               <p>
-                Understand consumption patterns and explore predictive
-                insights.
+                {activePage === 'Bill Analysis'
+                  ? 'Audit your utility bill with OpenRouter AI, detect tariff tier creep, and uncover concrete savings.'
+                  : 'Understand consumption patterns and explore predictive insights.'}
               </p>
             </div>
 
             <div className="date-chip">
               <Clock3 size={16} />
-              Hourly view
+              {activePage === 'Bill Analysis' ? 'AI Utility Audit' : 'Hourly view'}
             </div>
           </div>
 
-          <div className="notice">
-            <Activity size={18} />
-            <span>
-              <strong>Backend connection:</strong>{' '}
-              {loading
-                ? 'Loading dashboard data...'
-                : backendError
-                  ? 'Using unavailable data until the connection is restored.'
-                  : 'Dashboard data loaded from the Flask API.'}
-            </span>
-          </div>
+          {activePage === 'Bill Analysis' ? (
+            <BillAnalyzer />
+          ) : (
+            <>
+              {activePage === 'Overview' && (
+                <div
+                  className="bill-cta-banner"
+                  onClick={() => setActivePage('Bill Analysis')}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="cta-left">
+                    <div className="cta-icon">
+                      <ReceiptText size={22} />
+                    </div>
+                    <div>
+                      <h4>Upload Your Electricity Bill for AI Audit</h4>
+                      <p>
+                        Extract meter readings, audit tariff slabs, uncover hidden surcharges, and get tailored
+                        savings recommendations with OpenRouter AI.
+                      </p>
+                    </div>
+                  </div>
+                  <button type="button" className="cta-btn">
+                    <span>Audit Bill</span>
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
 
-          <div className="data-notice">
-            Historical-data note: this model forecasts the next hour after the dataset's final observation. It is not a live prediction for today's household consumption.
-          </div>
+              <div className="notice">
+                <Activity size={18} />
+                <span>
+                  <strong>Backend connection:</strong>{' '}
+                  {loading
+                    ? 'Loading dashboard data...'
+                    : backendError
+                      ? 'Using unavailable data until the connection is restored.'
+                      : 'Dashboard data loaded from the Flask API.'}
+                </span>
+              </div>
 
-          {backendError && (
-            <p
-              style={{
-                color: '#B42A4A',
-                margin: '0 0 16px',
-                fontSize: '14px',
-              }}
-            >
-              {backendError}
-            </p>
-          )}
+              <div className="data-notice">
+                Historical-data note: this model forecasts the next hour after the dataset's final observation. It is not a live prediction for today's household consumption.
+              </div>
 
-          <div className="stats-grid">
+              {backendError && (
+                <p
+                  style={{
+                    color: '#B42A4A',
+                    margin: '0 0 16px',
+                    fontSize: '14px',
+                  }}
+                >
+                  {backendError}
+                </p>
+              )}
+
+              <div className="stats-grid">
             <StatCard
               icon={<Activity size={20} />}
               label="Average consumption"
@@ -580,6 +619,8 @@ function App() {
               })}
             </div>
           </section>
+            </>
+          )}
 
           <footer>
             WattWise · Household Energy Consumption Forecasting

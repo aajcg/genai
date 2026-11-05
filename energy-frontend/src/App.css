@@ -149,6 +149,88 @@
   color: var(--teal-deep);
 }
 
+.nav-badge {
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--teal-wash);
+  color: var(--teal-deep);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* CTA Banner on Dashboard */
+.bill-cta-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 24px;
+  border-radius: var(--r-card);
+  background: linear-gradient(135deg, rgba(14, 159, 142, 0.15) 0%, rgba(112, 212, 232, 0.18) 100%);
+  border: 1px solid rgba(14, 159, 142, 0.35);
+  box-shadow: var(--shadow-lift);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 20px;
+}
+
+.bill-cta-banner:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -10px rgba(14, 159, 142, 0.35);
+}
+
+.cta-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cta-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #0e9f8e;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(14, 159, 142, 0.35);
+}
+
+.cta-left h4 {
+  margin: 0 0 3px;
+  font: 700 16.5px var(--font-display);
+  color: var(--ink);
+}
+
+.cta-left p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+.cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: 12px;
+  background: var(--ink);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+  font-size: 13.5px;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.bill-cta-banner:hover .cta-btn {
+  background: #253966;
+}
+
 .sidebar-bottom {
   display: flex;
   align-items: center;

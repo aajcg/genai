@@ -7,6 +7,8 @@ import pandas as pd
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+import bill_analyzer
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "hourly_energy.csv"
 MODEL_PATH = BASE_DIR / "xgb_model.joblib"
@@ -259,6 +261,119 @@ def assistant():
         })
     except Exception as exc:
         app.logger.exception("Assistant request failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/bill/config")
+def bill_config():
+    """Return status of OpenRouter API key configuration and available models."""
+    api_key = bill_analyzer.get_api_key()
+    return jsonify({
+        "has_api_key": bool(api_key),
+        "key_preview": f"••••••••{api_key[-4:]}" if api_key and len(api_key) > 6 else bool(api_key),
+        "default_model": bill_analyzer.DEFAULT_MODEL,
+        "available_models": [
+            {"id": "google/gemini-2.0-flash-001", "name": "Gemini 2.0 Flash (Fastest & Multimodal)"},
+            {"id": "google/gemini-flash-1.5", "name": "Gemini 1.5 Flash"},
+            {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini"},
+            {"id": "meta-llama/llama-3.2-11b-vision-instruct", "name": "Llama 3.2 11B Vision"},
+        ],
+    })
+
+
+@app.post("/api/bill/save-key")
+def bill_save_key():
+    """Save user-supplied OpenRouter API key to backend .env."""
+    data = request.get_json(silent=True) or {}
+    key = str(data.get("api_key", "")).strip()
+    if not key:
+        return jsonify({"error": "No API key provided."}), 400
+    success = bill_analyzer.save_api_key_to_env(key, BASE_DIR)
+    if success:
+        return jsonify({"status": "ok", "message": "OpenRouter API key saved successfully."})
+    return jsonify({"error": "Failed to save API key to .env file."}), 500
+
+
+@app.post("/api/bill/analyze")
+def bill_analyze():
+    """Analyze an uploaded electricity bill PDF/Image or a sample bill."""
+    try:
+        use_sample = False
+        api_key = request.headers.get("X-OpenRouter-Key")
+        model = None
+        file_bytes = None
+        filename = None
+        mime_type = None
+
+        if request.is_json:
+            data = request.get_json(silent=True) or {}
+            use_sample = bool(data.get("sample", False))
+            if data.get("api_key"):
+                api_key = str(data["api_key"]).strip()
+            if data.get("model"):
+                model = str(data["model"]).strip()
+        else:
+            if "sample" in request.form:
+                use_sample = str(request.form.get("sample", "")).lower() in ("true", "1", "yes")
+            if request.form.get("api_key"):
+                api_key = str(request.form.get("api_key")).strip()
+            if request.form.get("model"):
+                model = str(request.form.get("model")).strip()
+
+            if "file" in request.files:
+                uploaded = request.files["file"]
+                if uploaded and uploaded.filename:
+                    filename = uploaded.filename
+                    mime_type = uploaded.mimetype
+                    file_bytes = uploaded.read()
+
+        if not use_sample and not file_bytes:
+            return jsonify({
+                "error": "Please provide an electricity bill file (PDF, PNG, JPG) or choose sample mode."
+            }), 400
+
+        analysis = bill_analyzer.analyze_bill_with_openrouter(
+            file_bytes=file_bytes,
+            filename=filename,
+            mime_type=mime_type,
+            api_key=api_key,
+            model=model,
+            use_sample=use_sample,
+        )
+        return jsonify(analysis)
+    except ValueError as val_err:
+        return jsonify({"error": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error in bill analysis")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/bill/ask")
+def bill_ask():
+    """Answer a follow-up user query regarding an analyzed bill."""
+    try:
+        data = request.get_json(silent=True) or {}
+        question = str(data.get("question", "")).strip()
+        bill_context = data.get("bill_context", {})
+        api_key = data.get("api_key") or request.headers.get("X-OpenRouter-Key")
+        model = data.get("model")
+
+        if not question:
+            return jsonify({"error": "Please provide a question."}), 400
+        if not bill_context:
+            return jsonify({"error": "No bill context provided."}), 400
+
+        answer = bill_analyzer.ask_bill_question(
+            bill_context=bill_context,
+            question=question,
+            api_key=api_key,
+            model=model,
+        )
+        return jsonify({"answer": answer})
+    except ValueError as val_err:
+        return jsonify({"error": str(val_err)}), 400
+    except Exception as exc:
+        app.logger.exception("Error answering bill question")
         return jsonify({"error": str(exc)}), 500
 
 
