@@ -26,6 +26,13 @@ import {
   Key,
 } from 'lucide-react';
 import ApiKeyModal from './ApiKeyModal';
+import MarkdownMessage from './MarkdownMessage';
+import {
+  loadSavedBillAnalysis,
+  saveBillAnalysis,
+  loadSavedBillChat,
+  saveBillChat,
+} from '../utils/sessionStorage';
 import './BillAnalyzer.css';
 
 const API_BASE = 'http://127.0.0.1:5000/api';
@@ -34,7 +41,7 @@ export default function BillAnalyzer() {
   const [file, setFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('google/gemini-2.0-flash-001');
+  const [selectedModel, setSelectedModel] = useState('google/gemini-2.5-flash');
   const [availableModels, setAvailableModels] = useState([]);
   const [hasServerKey, setHasServerKey] = useState(false);
   const [clientKey, setClientKey] = useState(() => localStorage.getItem('wattwise_openrouter_key') || '');
@@ -42,13 +49,26 @@ export default function BillAnalyzer() {
 
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState(1);
-  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState(() => loadSavedBillAnalysis());
   const [error, setError] = useState('');
 
   // Bill Assistant Chat
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessages, setChatMessages] = useState(() => {
+    const saved = loadSavedBillChat();
+    if (saved && saved.length > 0) return saved;
+    return [];
+  });
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+
+  // Sync to session storage
+  useEffect(() => {
+    saveBillAnalysis(analysisResult);
+  }, [analysisResult]);
+
+  useEffect(() => {
+    saveBillChat(chatMessages);
+  }, [chatMessages]);
 
   const fileInputRef = useRef(null);
 
@@ -426,8 +446,8 @@ export default function BillAnalyzer() {
                   ))
                 ) : (
                   <>
-                    <option value="google/gemini-2.0-flash-001">
-                      Gemini 2.0 Flash (Recommended & Fast)
+                    <option value="google/gemini-2.5-flash">
+                      Gemini 2.5 Flash (Recommended & Fast)
                     </option>
                     <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
                     <option value="meta-llama/llama-3.2-11b-vision-instruct">
@@ -873,7 +893,7 @@ export default function BillAnalyzer() {
             <div className="bill-chat-messages">
               {chatMessages.map((msg, i) => (
                 <div key={i} className={`chat-bubble ${msg.role}`}>
-                  <p>{msg.text}</p>
+                  <MarkdownMessage content={msg.text} />
                 </div>
               ))}
               {chatLoading && (

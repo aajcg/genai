@@ -25,8 +25,44 @@ load_dotenv(find_dotenv(usecwd=True))
 logger = logging.getLogger(__name__)
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "google/gemini-2.0-flash-001"
-FALLBACK_MODEL = "openai/gpt-4o-mini"
+DEFAULT_MODEL = "google/gemini-2.5-flash"
+FALLBACK_MODELS = ["openai/gpt-4o-mini", "google/gemini-2.5-flash"]
+
+
+def call_openrouter_api(headers: dict, body: dict, requested_model: str, max_tokens: int = 2500) -> str:
+    """Execute OpenRouter API call with automatic fallback across candidate models."""
+    models_to_try = [requested_model]
+    for fb in FALLBACK_MODELS:
+        if fb not in models_to_try:
+            models_to_try.append(fb)
+
+    last_err = None
+    for model_name in models_to_try:
+        try:
+            payload = dict(body)
+            payload["model"] = model_name
+            payload["max_tokens"] = max_tokens
+            with httpx.Client(timeout=55.0) as client:
+                resp = client.post(OPENROUTER_API_URL, headers=headers, json=payload)
+                if resp.status_code == 200:
+                    result_json = resp.json()
+                    return result_json["choices"][0]["message"]["content"]
+
+                err_text = resp.text
+                logger.warning("OpenRouter model %s returned status %s: %s", model_name, resp.status_code, err_text)
+                last_err = RuntimeError(f"OpenRouter error ({resp.status_code}): {err_text}")
+                if resp.status_code in (404, 402, 429, 500, 502, 503):
+                    continue
+                else:
+                    raise last_err
+        except (httpx.TimeoutException, httpx.RequestError) as net_err:
+            logger.warning("Network issue calling OpenRouter model %s: %s", model_name, net_err)
+            last_err = net_err
+            continue
+
+    if last_err:
+        raise last_err
+    raise RuntimeError("Failed to call OpenRouter API with available models.")
 
 BILL_SYSTEM_PROMPT = """You are an expert energy auditor and electricity tariff analyst for WattWise, an intelligent energy management platform.
 Your task is to analyze electricity utility bills (uploaded as documents or images) with extreme precision and provide deep, actionable insights.
@@ -332,32 +368,20 @@ def analyze_bill_with_openrouter(
     }
 
     body = {
-        "model": selected_model,
         "messages": messages_payload,
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
     }
 
     try:
-        with httpx.Client(timeout=65.0) as client:
-            resp = client.post(OPENROUTER_API_URL, headers=headers, json=body)
-
-            if resp.status_code != 200:
-                # If error occurred, attempt with fallback model if appropriate
-                err_text = resp.text
-                logger.error("OpenRouter API returned error %s: %s", resp.status_code, err_text)
-                try:
-                    err_json = resp.json()
-                    err_msg = err_json.get("error", {}).get("message", err_text)
-                except Exception:
-                    err_msg = err_text
-                raise RuntimeError(f"OpenRouter API error ({resp.status_code}): {err_msg}")
-
-            result_json = resp.json()
-            raw_content = result_json["choices"][0]["message"]["content"]
-            analysis = extract_json_from_response(raw_content)
-            return analysis
-
+        raw_content = call_openrouter_api(
+            headers=headers,
+            body=body,
+            requested_model=selected_model,
+            max_tokens=2500,
+        )
+        analysis = extract_json_from_response(raw_content)
+        return analysis
     except httpx.TimeoutException:
         raise RuntimeError("Request to OpenRouter timed out. Please try again.")
     except Exception as exc:
@@ -401,16 +425,279 @@ def ask_bill_question(
     }
 
     body = {
-        "model": selected_model,
         "messages": messages,
         "temperature": 0.4,
-        "max_tokens": 1000,
     }
 
-    with httpx.Client(timeout=45.0) as client:
-        resp = client.post(OPENROUTER_API_URL, headers=headers, json=body)
-        if resp.status_code != 200:
-            raise RuntimeError(f"OpenRouter error: {resp.text}")
-        result = resp.json()
-        return result["choices"][0]["message"]["content"]
+    return call_openrouter_api(
+        headers=headers,
+        body=body,
+        requested_model=selected_model,
+        max_tokens=1000,
+    )
+
+
+def general_energy_chat(
+    question: str,
+    chat_history: Optional[list] = None,
+    context_info: Optional[Dict[str, Any]] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> str:
+    """Answer general energy, forecasting, or efficiency queries using OpenRouter."""
+    key = get_api_key(api_key)
+    if not key:
+        raise ValueError("OpenRouter API key is required.")
+
+    selected_model = model or DEFAULT_MODEL
+
+    ctx_text = ""
+    if context_info:
+        ctx_text = f"\nHousehold Live Telemetry & Model Context:\n" + "\n".join(
+            f"- {k}: {v}" for k, v in context_info.items()
+        )
+
+    system_prompt = (
+        "You are WattWise AI, an expert household energy consultant and forecasting assistant.\n"
+        "You have deep knowledge of electrical power, tariffs, energy conservation, solar PV systems, "
+        "and time-series load forecasting.\n"
+        f"{ctx_text}\n\n"
+        "Guidelines:\n"
+        "- Give clear, conversational, actionable, and mathematically grounded answers.\n"
+        "- Use markdown formatting (**bolding**, bullet lists, tables where relevant) for high readability.\n"
+        "- When asked about forecasts or dataset stats, reference the live telemetry context above.\n"
+        "- For appliances or energy-saving tips, provide realistic wattage figures and dollar/rupee estimates."
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Include recent chat history (up to last 6 messages)
+    if chat_history:
+        for msg in chat_history[-6:]:
+            role = msg.get("role", "user")
+            text = msg.get("text", "")
+            if text and role in ("user", "assistant"):
+                messages.append({"role": role, "content": text})
+
+    messages.append({"role": "user", "content": question})
+
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:5000",
+        "X-Title": "WattWise Energy AI",
+    }
+
+    body = {
+        "messages": messages,
+        "temperature": 0.4,
+    }
+
+    return call_openrouter_api(
+        headers=headers,
+        body=body,
+        requested_model=selected_model,
+        max_tokens=1500,
+    )
+
+
+def analyze_multi_month_bills(
+    monthly_bills: list[Dict[str, Any]],
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Perform comparative analysis across multiple months of utility bills."""
+    if not monthly_bills:
+        raise ValueError("Please provide at least one month's bill record.")
+
+    # Calculate deterministic summary metrics
+    total_spend = sum(float(b.get("amount", 0)) for b in monthly_bills)
+    total_units = sum(float(b.get("units_kwh", 0)) for b in monthly_bills)
+    count = len(monthly_bills)
+    avg_spend = round(total_spend / max(1, count), 2)
+    avg_units = round(total_units / max(1, count), 2)
+
+    # Sort bills chronologically if dates exist or preserve order
+    sorted_bills = sorted(monthly_bills, key=lambda b: float(b.get("units_kwh", 0)))
+    min_month = sorted_bills[0] if sorted_bills else {}
+    max_month = sorted_bills[-1] if sorted_bills else {}
+
+    key = get_api_key(api_key)
+    if not key:
+        # High quality offline fallback analysis
+        variance_pct = 0
+        if float(min_month.get("units_kwh", 0)) > 0:
+            diff = float(max_month.get("units_kwh", 0)) - float(min_month.get("units_kwh", 0))
+            variance_pct = round((diff / float(min_month.get("units_kwh", 1))) * 100, 1)
+
+        markdown_report = f"""### Multi-Month Energy Consumption Overview
+
+- **Total Tracked Months:** {count}
+- **Total Electricity Consumed:** {total_units:,.1f} kWh
+- **Total Amount Paid:** ${total_spend:,.2f}
+- **Monthly Average Consumption:** {avg_units:,.1f} kWh / month (${avg_spend:,.2f} / month)
+- **Peak Consumption Month:** **{max_month.get('month', 'N/A')}** ({max_month.get('units_kwh', 0)} kWh · ${max_month.get('amount', 0)})
+- **Lowest Consumption Month:** **{min_month.get('month', 'N/A')}** ({min_month.get('units_kwh', 0)} kWh · ${min_month.get('amount', 0)})
+- **Seasonal Spread:** {variance_pct}% increase between baseline and peak months.
+
+#### Key Takeaways:
+1. **Seasonal Demand Surge:** Peak usage in **{max_month.get('month', 'peak month')}** is significantly higher than your baseline shoulder season. This typically reflects space cooling (air conditioning) or space heating loads.
+2. **Effective Rate Fluctuation:** In higher consumption months, higher tariff tiers or fuel surcharges inflate your blended cost per kWh.
+3. **Targeted Savings:** Trimming just 15% off your peak season usage could save an estimated **${(avg_spend * 0.15 * count):.2f} annually**.
+"""
+        return {
+            "total_spend": total_spend,
+            "total_units": total_units,
+            "avg_spend": avg_spend,
+            "avg_units": avg_units,
+            "peak_month": max_month.get("month", "N/A"),
+            "lowest_month": min_month.get("month", "N/A"),
+            "variance_pct": variance_pct,
+            "summary": f"Analyzed {count} billing periods totaling {total_units:,.1f} kWh (${total_spend:,.2f}).",
+            "markdown_report": markdown_report,
+            "key_trends": [
+                f"Peak consumption occurred in {max_month.get('month')} with {max_month.get('units_kwh')} kWh.",
+                f"Lowest consumption occurred in {min_month.get('month')} with {min_month.get('units_kwh')} kWh.",
+                f"Average monthly energy cost is ${avg_spend:.2f} across {count} months.",
+            ],
+            "seasonal_observations": [
+                f"A {variance_pct}% usage disparity exists between minimum and maximum months, highlighting prominent seasonal climate control impact.",
+                "Shifting high-consumption cycles during peak months yields the greatest return on effort.",
+            ],
+            "annual_savings_roadmap": [
+                {
+                    "action": "Smart Thermostat Setback during Summer/Winter Peaks",
+                    "target_months": f"Peak months around {max_month.get('month', 'summer')}",
+                    "potential_annual_savings": f"${(avg_spend * 0.12 * 4):.2f}",
+                },
+                {
+                    "action": "Vampire / Standby Load Curtailment",
+                    "target_months": "Year-round",
+                    "potential_annual_savings": f"${(avg_spend * 0.08 * 12):.2f}",
+                },
+                {
+                    "action": "Solar PV Self-Consumption Offset",
+                    "target_months": "Annual generation",
+                    "potential_annual_savings": f"${(total_spend * 0.70):.2f}",
+                },
+            ],
+        }
+
+    # OpenRouter Multi-Month Analysis
+    selected_model = model or DEFAULT_MODEL
+    system_prompt = (
+        "You are an expert utility tariff and energy efficiency auditor for WattWise. "
+        "Analyze a multi-month dataset of electricity bills for a household. "
+        "Identify seasonal consumption shifts, tariff slab creep, cost anomalies, and generate a concrete annual savings roadmap.\n"
+        "Return a strictly valid JSON object with:\n"
+        "{\n"
+        '  "summary": "Concise executive summary",\n'
+        '  "key_trends": ["trend 1", "trend 2", "trend 3"],\n'
+        '  "seasonal_observations": ["observation 1", "observation 2"],\n'
+        '  "cost_anomalies": ["anomaly 1", "anomaly 2"],\n'
+        '  "annual_savings_roadmap": [\n'
+        '    {"action": "...", "target_months": "...", "potential_annual_savings": "..."}\n'
+        "  ],\n"
+        '  "estimated_annual_savings_total": "$XXX",\n'
+        '  "markdown_report": "A complete, beautifully formatted markdown analysis report with headers, bullet points, and actionable advice."\n'
+        "}"
+    )
+
+    user_content = (
+        f"Here is the household's multi-month electricity billing record ({count} months):\n"
+        f"```json\n{json.dumps(monthly_bills, indent=2)}\n```\n"
+        f"Deterministic metrics: Total Units = {total_units} kWh, Total Cost = ${total_spend}, "
+        f"Average Monthly Units = {avg_units} kWh, Average Cost = ${avg_spend}.\n\n"
+        "Please provide a comprehensive multi-month trend analysis."
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:5000",
+        "X-Title": "WattWise Multi-Month Auditor",
+    }
+
+    body = {
+        "messages": messages,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+    }
+
+    try:
+        raw_content = call_openrouter_api(
+            headers=headers,
+            body=body,
+            requested_model=selected_model,
+            max_tokens=2500,
+        )
+        parsed = extract_json_from_response(raw_content)
+        parsed["total_spend"] = total_spend
+        parsed["total_units"] = total_units
+        parsed["avg_spend"] = avg_spend
+        parsed["avg_units"] = avg_units
+        parsed["peak_month"] = max_month.get("month", "N/A")
+        parsed["lowest_month"] = min_month.get("month", "N/A")
+        return parsed
+    except Exception as exc:
+        logger.warning("OpenRouter multi-month analysis failed, using fallback engine: %s", exc)
+        # Fallback to deterministic calculation with user notice
+        diff = float(max_month.get("units_kwh", 0)) - float(min_month.get("units_kwh", 0))
+        variance_pct = round((diff / max(1.0, float(min_month.get("units_kwh", 1)))) * 100, 1)
+        fallback_res = {
+            "total_spend": total_spend,
+            "total_units": total_units,
+            "avg_spend": avg_spend,
+            "avg_units": avg_units,
+            "peak_month": max_month.get("month", "N/A"),
+            "lowest_month": min_month.get("month", "N/A"),
+            "variance_pct": variance_pct,
+            "summary": f"Analyzed {count} billing periods totaling {total_units:,.1f} kWh (${total_spend:,.2f}).",
+            "key_trends": [
+                f"Peak consumption observed in {max_month.get('month')} with {max_month.get('units_kwh')} kWh.",
+                f"Lowest consumption observed in {min_month.get('month')} with {min_month.get('units_kwh')} kWh.",
+                f"Monthly average spend is ${avg_spend:.2f} across the recorded intervals.",
+            ],
+            "seasonal_observations": [
+                f"A {variance_pct}% usage surge is visible between baseline and peak months, reflecting seasonal thermal conditioning (AC/heating).",
+                "Higher consumption months pushed average unit costs upward due to progressive slab creep.",
+            ],
+            "annual_savings_roadmap": [
+                {
+                    "action": "Peak Month Thermostat Scheduling",
+                    "target_months": f"Surrounding {max_month.get('month', 'summer')}",
+                    "potential_annual_savings": f"${(avg_spend * 0.12 * 4):.2f}",
+                },
+                {
+                    "action": "Vampire / Standby Load Curtailment",
+                    "target_months": "Year-round",
+                    "potential_annual_savings": f"${(avg_spend * 0.08 * 12):.2f}",
+                },
+            ],
+            "estimated_annual_savings_total": f"${(avg_spend * 0.15 * count):.2f}",
+            "markdown_report": f"""### Multi-Month Seasonal Trend Analysis
+
+> **Notice:** Generated using WattWise's mathematical tariff engine (OpenRouter returned: {exc}).
+
+- **Total Tracked Months:** {count}
+- **Total Electricity Consumed:** {total_units:,.1f} kWh
+- **Total Cost:** ${total_spend:,.2f}
+- **Monthly Average:** {avg_units:,.1f} kWh/month (${avg_spend:,.2f}/month)
+- **Peak Month:** **{max_month.get('month', 'N/A')}** ({max_month.get('units_kwh', 0)} kWh)
+- **Lowest Month:** **{min_month.get('month', 'N/A')}** ({min_month.get('units_kwh', 0)} kWh)
+- **Seasonal Spread:** **{variance_pct}%** increase from minimum to peak.
+
+#### Key Auditor Findings:
+1. **Seasonal Demand Surge:** Peak consumption in **{max_month.get('month', 'peak')}** reveals major seasonal air conditioning or space heating loads.
+2. **Rate Slab Creep:** In peak months, electricity units crossed into higher pricing tiers, increasing effective cost per unit.
+3. **Savings Potential:** Shaving 15% off peak season cooling can yield an estimated **${(avg_spend * 0.15 * count):.2f} annual savings**.
+""",
+        }
+        return fallback_res
+
 
